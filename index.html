@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 智慧燈光控制</title>
+  <style>
+    body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; text-align: center; margin-top: 60px; }
+    .card { background: white; padding: 35px; border-radius: 20px; display: inline-block; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 340px; }
+    h2 { color: #333; margin-bottom: 5px; }
+    .wifi-tag { color: #6c757d; font-size: 13px; margin-bottom: 15px; }
+    .ip-box { margin-bottom: 20px; }
+    .ip-box input { padding: 8px 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 8px; width: 170px; text-align: center; }
+    .ip-box button { padding: 8px 14px; font-size: 14px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
+    .status { font-size: 20px; font-weight: bold; margin: 20px 0; }
+    .switch-btn { background-color: #6c757d; color: white; border: none; padding: 16px 30px; font-size: 20px; border-radius: 50px; cursor: pointer; transition: 0.3s; width: 100%; }
+    .switch-btn.on { background-color: #28a745; }
+    .switch-btn.off { background-color: #dc3545; }
+    .switch-btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>居家燈光控制</h2>
+    <div class="wifi-tag">Wi-Fi: Weii_Guest</div>
+    
+    <!-- 預設填入對應 172.16.1.x 網段的輸入框 -->
+    <div class="ip-box">
+      <input type="text" id="espIp" placeholder="輸入 ESP32 IP" value="172.16.1.100">
+      <button onclick="saveIp()">儲存 IP</button>
+    </div>
+
+    <div class="status" id="statusText">等待連線...</div>
+    <button id="toggleBtn" class="switch-btn" onclick="toggleLight()">切換開關</button>
+  </div>
+
+  <script>
+    // 網頁載入時自動讀取記憶的 IP，若無則帶入 172.16.1.100
+    window.onload = function() {
+      const savedIp = localStorage.getItem('esp32_ip');
+      if (savedIp) {
+        document.getElementById('espIp').value = savedIp;
+      }
+      getStatus();
+    };
+
+    function saveIp() {
+      const ip = document.getElementById('espIp').value.trim();
+      localStorage.setItem('esp32_ip', ip);
+      getStatus();
+      alert('已儲存 ESP32 IP：' + ip);
+    }
+
+    function getBaseUrl() {
+      const ip = document.getElementById('espIp').value.trim();
+      return `http://${ip}`;
+    }
+
+    function getStatus() {
+      fetch(`${getBaseUrl()}/status`)
+        .then(res => res.text())
+        .then(state => {
+          updateUI(state.trim() === "1");
+        })
+        .catch(() => {
+          document.getElementById('statusText').innerHTML = "<span style='color:#ff9800;'>無法連線至 ESP32</span>";
+        });
+    }
+
+    function toggleLight() {
+      const btn = document.getElementById('toggleBtn');
+      const isOn = btn.classList.contains('on');
+      const action = isOn ? '/OFF' : '/ON';
+
+      fetch(`${getBaseUrl()}${action}`)
+        .then(res => res.text())
+        .then(state => {
+          updateUI(state.trim() === "1");
+        })
+        .catch(() => {
+          alert('指令發送失敗，請確認 ESP32 IP 是否正確！');
+        });
+    }
+
+    function updateUI(isOn) {
+      const btn = document.getElementById('toggleBtn');
+      const statusText = document.getElementById('statusText');
+      if (isOn) {
+        statusText.innerHTML = "目前狀態：<span style='color:#28a745;'>開啟 (ON)</span>";
+        btn.className = "switch-btn on";
+        btn.innerText = "點擊關燈";
+      } else {
+        statusText.innerHTML = "目前狀態：<span style='color:#dc3545;'>關閉 (OFF)</span>";
+        btn.className = "switch-btn off";
+        btn.innerText = "點擊開燈";
+      }
+    }
+
+    // 每 1.5 秒自動同步一次狀態
+    setInterval(getStatus, 1500);
+  </script>
+
+</body>
+</html>
