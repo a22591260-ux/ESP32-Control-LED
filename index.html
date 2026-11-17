@@ -3,53 +3,86 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESP32 智慧燈光控制</title>
+  <title>ESP32 內建 LED 燈光控制與 CMD 日誌</title>
   <style>
-    body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; text-align: center; margin-top: 60px; }
-    .card { background: white; padding: 35px; border-radius: 20px; display: inline-block; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 340px; }
+    body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; text-align: center; margin-top: 40px; }
+    .card { background: white; padding: 30px; border-radius: 20px; display: inline-block; box-shadow: 0 8px 24px rgba(0,0,0,0.1); width: 380px; }
     h2 { color: #333; margin-bottom: 5px; }
     .wifi-tag { color: #6c757d; font-size: 13px; margin-bottom: 15px; }
     .ip-box { margin-bottom: 20px; }
     .ip-box input { padding: 8px 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 8px; width: 170px; text-align: center; }
     .ip-box button { padding: 8px 14px; font-size: 14px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
-    .status { font-size: 20px; font-weight: bold; margin: 20px 0; }
-    .switch-btn { background-color: #6c757d; color: white; border: none; padding: 16px 30px; font-size: 20px; border-radius: 50px; cursor: pointer; transition: 0.3s; width: 100%; }
+    .status { font-size: 18px; font-weight: bold; margin: 15px 0; }
+    .switch-btn { background-color: #6c757d; color: white; border: none; padding: 14px 28px; font-size: 18px; border-radius: 50px; cursor: pointer; transition: 0.3s; width: 100%; }
     .switch-btn.on { background-color: #28a745; }
     .switch-btn.off { background-color: #dc3545; }
     .switch-btn:hover { opacity: 0.9; }
+    
+    /* CMD 終端機風格日誌框 */
+    .cmd-box {
+      margin-top: 20px;
+      background-color: #1e1e1e;
+      color: #00ff00;
+      text-align: left;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      height: 120px;
+      overflow-y: auto;
+      border: 1px solid #444;
+    }
+    .cmd-log { margin: 2px 0; word-break: break-all; }
+    .cmd-err { color: #ff5555; }
+    .cmd-info { color: #55ffff; }
   </style>
 </head>
 <body>
 
   <div class="card">
-    <h2>居家燈光控制</h2>
+    <h2>ESP32 內建 LED 控制</h2>
     <div class="wifi-tag">Wi-Fi: Weii_Guest</div>
     
-    <!-- 預設填入對應 172.16.1.x 網段的輸入框 -->
     <div class="ip-box">
-      <input type="text" id="espIp" placeholder="輸入 ESP32 IP" value="172.16.1.100">
+      <input type="text" id="espIp" value="172.16.1.17">
       <button onclick="saveIp()">儲存 IP</button>
     </div>
 
     <div class="status" id="statusText">等待連線...</div>
     <button id="toggleBtn" class="switch-btn" onclick="toggleLight()">切換開關</button>
+
+    <!-- 模擬 CMD 錯誤與訊息紀錄框 -->
+    <div class="cmd-box" id="cmdConsole">
+      <div class="cmd-log cmd-info">[System] 網頁介面已啟動，準備連線...</div>
+    </div>
   </div>
 
   <script>
-    // 網頁載入時自動讀取記憶的 IP，若無則帶入 172.16.1.100
     window.onload = function() {
       const savedIp = localStorage.getItem('esp32_ip');
       if (savedIp) {
         document.getElementById('espIp').value = savedIp;
       }
+      logCmd("載入儲存的 IP: " + document.getElementById('espIp').value, "info");
       getStatus();
     };
+
+    function logCmd(msg, type = "normal") {
+      const consoleBox = document.getElementById('cmdConsole');
+      const timeStr = new Date().toLocaleTimeString();
+      let className = "cmd-log";
+      if (type === "error") className += " cmd-err";
+      if (type === "info") className += " cmd-info";
+
+      consoleBox.innerHTML += `<div class="${className}">[${timeStr}] ${msg}</div>`;
+      consoleBox.scrollTop = consoleBox.scrollHeight; // 自動捲動到底部
+    }
 
     function saveIp() {
       const ip = document.getElementById('espIp').value.trim();
       localStorage.setItem('esp32_ip', ip);
+      logCmd("手動更新並儲存 IP: " + ip, "info");
       getStatus();
-      alert('已儲存 ESP32 IP：' + ip);
     }
 
     function getBaseUrl() {
@@ -58,13 +91,18 @@
     }
 
     function getStatus() {
-      fetch(`${getBaseUrl()}/status`)
-        .then(res => res.text())
+      const url = `${getBaseUrl()}/status`;
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP 錯誤狀態碼: ${res.status}`);
+          return res.text();
+        })
         .then(state => {
           updateUI(state.trim() === "1");
         })
-        .catch(() => {
+        .catch(err => {
           document.getElementById('statusText').innerHTML = "<span style='color:#ff9800;'>無法連線至 ESP32</span>";
+          logCmd("連線失敗 (GET /status): " + err.message, "error");
         });
     }
 
@@ -72,14 +110,22 @@
       const btn = document.getElementById('toggleBtn');
       const isOn = btn.classList.contains('on');
       const action = isOn ? '/OFF' : '/ON';
+      const url = `${getBaseUrl()}${action}`;
 
-      fetch(`${getBaseUrl()}${action}`)
-        .then(res => res.text())
+      logCmd("發送指令: " + action, "info");
+
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP 錯誤狀態碼: ${res.status}`);
+          return res.text();
+        })
         .then(state => {
           updateUI(state.trim() === "1");
+          logCmd("指令執行成功，回傳狀態: " + state.trim(), "info");
         })
-        .catch(() => {
-          alert('指令發送失敗，請確認 ESP32 IP 是否正確！');
+        .catch(err => {
+          alert('指令發送失敗！請查看下方 CMD 日誌。');
+          logCmd("發送指令失敗: " + err.message, "error");
         });
     }
 
